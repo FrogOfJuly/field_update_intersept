@@ -35,6 +35,7 @@ static PyObject *field_intersept_stop(PyObject *fintmodule, PyObject *Py_UNUSED(
 }
 
 static PyMethodDef filed_intersept_methods[] = {
+    {"stop", (PyCFunction)field_intersept_stop, METH_NOARGS, "stops interseption"},
     {NULL} /* Sentinel */
 };
 
