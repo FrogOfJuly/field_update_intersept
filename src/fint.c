@@ -4,79 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define Py_BUILD_CORE
-
-#undef _PyGC_FINALIZED
-#define _PyGC_FINALIZED dontlookatmeplease
-
-#include <internal/pycore_interp.h>
-
-#undef Py_BUILD_CORE
-
 typedef struct field_intersept_s
 {
 
 } FINTState;
 
-int PyObject_GenericSetAttr_int(PyObject *obj, PyObject *name, PyObject *value)
-{
-    printf("Indirect function called\n");
-    return PyObject_GenericSetAttr(obj, name, value);
-}
-
-static int FINT_run()
-{
-    printf("---------- FINT run ---------\n");
-
-    PyGILState_STATE gstate;
-    gstate = PyGILState_Ensure();
-
-    {
-        PyBaseObject_Type.tp_setattro = PyObject_GenericSetAttr_int;
-
-        printf("\033[33;1;4m> generic set attr function: %p\033[0m\n", PyObject_GenericSetAttr);
-        printf("\033[32;1;4m> generic indirect set attr function: %p\033[0m\n", PyObject_GenericSetAttr_int);
-        printf("\033[34;1;4m> base object type address: %p\033[0m\n", &PyBaseObject_Type);
-        printf("\033[34;1;4m> base object type.tp_dict address: %p\033[0m\n", PyBaseObject_Type.tp_dict);
-
-        printf("\033[34;1;4m> getting interpreter state\033[0m\n");
-
-        /* Perform Python actions here. */
-        PyInterpreterState *interp = PyInterpreterState_Get();
-        printf("\033[34;1;4m> getting PyBaseObject_Type state\033[0m\n");
-
-        size_t idx = (size_t)PyBaseObject_Type.tp_subclasses - 1;
-        PyObject *dict = interp->types.builtins[idx].tp_dict;
-        PyObject *name = PyUnicode_FromString("__setattr__");
-
-
-        printf("\033[32m> name: ");
-        PyObject_Print(name, stdout, Py_PRINT_RAW);
-        printf("\033[0m\n");
-        
-        PyObject *descr = PyDict_GetItem(dict, name);
-        PyWrapperDescrObject *d = (PyWrapperDescrObject *)descr;
-        d->d_wrapped = &PyObject_GenericSetAttr_int;
-
-        // static_builtin_state *pyobj_t_state = _PyStaticType_GetState(interp, &PyObject_Type);
-        // if(pyobj_t_state != NULL){
-        //     printf("\033[34;1;4m> No state for base object type\033[0m\n");
-        //     return 0;
-        // }
-
-        // PyTypeObject *dict = pyobj_t_state->tp_dict;
-
-        printf("\033[34;1;4m> interpreter[obj_type_idx]->tp_dict address: %p\033[0m\n", dict);
-        printf("\033[32m> Dict itself looks like this: ");
-        PyObject_Print(dict, stdout, Py_PRINT_RAW);
-        printf("\033[0m\n");
-    }
-
-    /* Release the thread. No Python API allowed beyond this point. */
-    PyGILState_Release(gstate);
-
-    return 0;
-}
+static int FINT_run();
 
 static int FINT_stop()
 {
@@ -155,4 +88,76 @@ PyMODINIT_FUNC PyInit_field_intersept(void)
 
     return module;
 #endif
+}
+
+//***************************************************************
+//--------------- interesting things start here -----------------
+//***************************************************************
+
+//get dictionary pointer with methods which is store in interpreter state
+PyObject* perform_black_magic(PyTypeObject * type);
+
+//indirect function to call on field update
+int PyObject_GenericSetAttr_int(PyObject *obj, PyObject *name, PyObject *value)
+{
+    printf("Indirect function called\n");
+    return PyObject_GenericSetAttr(obj, name, value);
+}
+
+
+//run on import
+static int FINT_run()
+{
+    printf("---------- FINT run ---------\n");
+
+    PyGILState_STATE gstate;
+    gstate = PyGILState_Ensure();
+
+    {
+        //setting indirect funtion for respecting field of object class
+
+        PyBaseObject_Type.tp_setattro = PyObject_GenericSetAttr_int;
+
+        //retrieving dictionary with methods of built-in types
+        //magic is required as the internals of interpreter state are inaccessable 
+        PyObject * dict = perform_black_magic(&PyBaseObject_Type);
+
+        //buidling __setattr__ string to lookup in dict
+        PyObject *name = PyUnicode_FromString("__setattr__");
+       
+        //getting a method wrapper
+        PyObject *descr = PyDict_GetItem(dict, name);
+        //should be null checks and things, but they will be added later
+        PyWrapperDescrObject *d = (PyWrapperDescrObject *)descr;
+
+        //replacing the underlying function of a wrapper
+        d->d_wrapped = &PyObject_GenericSetAttr_int;
+
+    }
+
+    /* Release the thread. No Python API allowed beyond this point. */
+    PyGILState_Release(gstate);
+
+    return 0;
+}
+
+//------- Exposing the internals of python to access interpreter state fields
+
+#define Py_BUILD_CORE
+
+#undef _PyGC_FINALIZED
+#define _PyGC_FINALIZED dontlookatmeplease
+
+#include <internal/pycore_interp.h>
+
+#undef Py_BUILD_CORE
+#undef _PyGC_FINALIZED
+
+
+PyObject* perform_black_magic(PyTypeObject * type){
+        size_t idx = (size_t)type->tp_subclasses - 1;
+
+        PyInterpreterState *interp = PyInterpreterState_Get();
+        PyObject *dict = interp->types.builtins[idx].tp_dict;
+        return dict;
 }
