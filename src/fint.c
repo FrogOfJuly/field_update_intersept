@@ -1,5 +1,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,18 +95,32 @@ PyMODINIT_FUNC PyInit_field_intersept(void)
 //--------------- interesting things start here -----------------
 //***************************************************************
 
-//get dictionary pointer with methods which is store in interpreter state
-PyObject* perform_black_magic(PyTypeObject * type);
+// get dictionary pointer with methods which is store in interpreter state
+PyObject *perform_black_magic(PyTypeObject *type);
 
-//indirect function to call on field update
+// indirect function to call on field update
 int PyObject_GenericSetAttr_int(PyObject *obj, PyObject *name, PyObject *value)
 {
-    printf("Indirect function called\n");
+
+    printf("%p.", obj);
+    PyObject_Print(name, stdout, Py_PRINT_RAW);
+    printf("=");
+    PyObject_Print(value, stdout, Py_PRINT_RAW);
+    printf("\n");
     return PyObject_GenericSetAttr(obj, name, value);
 }
 
+// indirect function to call on field read
+PyObject *PyObject_GenericGetAttr_int(PyObject *obj, PyObject *name)
+{
 
-//run on import
+    printf("> %p.", obj);
+    PyObject_Print(name, stdout, Py_PRINT_RAW);
+    printf("\n");
+    return PyObject_GenericGetAttr(obj, name);
+}
+
+// run on import
 static int FINT_run()
 {
     printf("---------- FINT run ---------\n");
@@ -113,30 +128,84 @@ static int FINT_run()
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 
+    printf("GIL taken\n");
+
     {
-        //setting indirect funtion for respecting field of object class
 
-        PyBaseObject_Type.tp_setattro = PyObject_GenericSetAttr_int;
+        {
+            // setting indirect funtion for respecting field of object class
+            PyBaseObject_Type.tp_setattro = PyObject_GenericSetAttr_int;
+            // buidling __setattr__ string to lookup in dict
+            printf("Allocating string `__setattr__`\n");
+            PyObject *name = PyUnicode_FromString("__setattr__");
 
-        //retrieving dictionary with methods of built-in types
-        //magic is required as the internals of interpreter state are inaccessable 
-        PyObject * dict = perform_black_magic(&PyBaseObject_Type);
+            printf("replacing setattr\n");
+            replace_intr_objects_method(name, &PyObject_GenericSetAttr_int);
 
-        //buidling __setattr__ string to lookup in dict
-        PyObject *name = PyUnicode_FromString("__setattr__");
-       
-        //getting a method wrapper
-        PyObject *descr = PyDict_GetItem(dict, name);
-        //should be null checks and things, but they will be added later
-        PyWrapperDescrObject *d = (PyWrapperDescrObject *)descr;
+            if (replace_intr_objects_method(name, &PyObject_GenericSetAttr_int) == 0)
+            {
+                printf("replaced setattr\n");
+            }
+            else
+            {
+                printf("failed to replace setattr\n");
+            }
+        }
+        {
+            // PyBaseObject_Type.tp_getattro = PyObject_GenericGetAttr_int;
 
-        //replacing the underlying function of a wrapper
-        d->d_wrapped = &PyObject_GenericSetAttr_int;
+            printf("Allocating string `__getattribute__`\n");
+            PyObject *name = PyUnicode_FromString("__getattribute__");
 
+            printf("replacing __getattribute__\n");
+            if (replace_intr_objects_method(name, &PyObject_GenericGetAttr_int) == 0)
+            {
+                printf("replaced __getattribute__\n");
+            }
+            else
+            {
+                printf("failed to replace __getattribute__\n");
+            }
+        }
     }
 
+    printf("releasing GIL\n");
     /* Release the thread. No Python API allowed beyond this point. */
     PyGILState_Release(gstate);
+
+    printf("GIL released\n");
+
+    return 0;
+}
+
+int replace_intr_objects_method(PyObject *name, void *underlying_method)
+{
+    // retrieving dictionary with methods of built-in types
+    // magic is required as the internals of interpreter state are *usually* inaccessable
+    PyObject *dict = perform_black_magic(&PyBaseObject_Type);
+
+    if (dict == NULL)
+    {
+        printf("Failed to get dict for PyBaseObject_Type\n");
+        return -1;
+    }
+
+    // getting a method wrapper
+    PyObject *descr = PyDict_GetItem(dict, name);
+
+    if (descr == NULL)
+    {
+        printf("No such such method: `");
+        PyObject_Print(name, stdout, Py_PRINT_RAW);
+        printf("`\n");
+        return -1;
+    }
+
+    // should be null checks and things, but they will be added later
+    PyWrapperDescrObject *d = (PyWrapperDescrObject *)descr;
+
+    // replacing the underlying function of a wrapper
+    d->d_wrapped = underlying_method;
 
     return 0;
 }
@@ -153,11 +222,11 @@ static int FINT_run()
 #undef Py_BUILD_CORE
 #undef _PyGC_FINALIZED
 
+PyObject *perform_black_magic(PyTypeObject *type)
+{
+    size_t idx = (size_t)type->tp_subclasses - 1;
 
-PyObject* perform_black_magic(PyTypeObject * type){
-        size_t idx = (size_t)type->tp_subclasses - 1;
-
-        PyInterpreterState *interp = PyInterpreterState_Get();
-        PyObject *dict = interp->types.builtins[idx].tp_dict;
-        return dict;
+    PyInterpreterState *interp = PyInterpreterState_Get();
+    PyObject *dict = interp->types.builtins[idx].tp_dict;
+    return dict;
 }
