@@ -127,53 +127,33 @@ static int FINT_run()
 
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
-
-    printf("GIL taken\n");
-
     {
 
         {
             // setting indirect funtion for respecting field of object class
             PyBaseObject_Type.tp_setattro = PyObject_GenericSetAttr_int;
             // buidling __setattr__ string to lookup in dict
-            printf("Allocating string `__setattr__`\n");
             PyObject *name = PyUnicode_FromString("__setattr__");
 
-            printf("replacing setattr\n");
             replace_intr_objects_method(name, &PyObject_GenericSetAttr_int);
 
-            if (replace_intr_objects_method(name, &PyObject_GenericSetAttr_int) == 0)
-            {
-                printf("replaced setattr\n");
-            }
-            else
+            if (replace_intr_objects_method(name, &PyObject_GenericSetAttr_int) != 0)
             {
                 printf("failed to replace setattr\n");
             }
         }
         {
             // PyBaseObject_Type.tp_getattro = PyObject_GenericGetAttr_int;
-
-            printf("Allocating string `__getattribute__`\n");
             PyObject *name = PyUnicode_FromString("__getattribute__");
 
-            printf("replacing __getattribute__\n");
-            if (replace_intr_objects_method(name, &PyObject_GenericGetAttr_int) == 0)
-            {
-                printf("replaced __getattribute__\n");
-            }
-            else
+            if (replace_intr_objects_method(name, &PyObject_GenericGetAttr_int) != 0)
             {
                 printf("failed to replace __getattribute__\n");
             }
         }
     }
-
-    printf("releasing GIL\n");
     /* Release the thread. No Python API allowed beyond this point. */
     PyGILState_Release(gstate);
-
-    printf("GIL released\n");
 
     return 0;
 }
